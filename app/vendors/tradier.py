@@ -1,7 +1,10 @@
 # app/vendors/tradier.py
 import httpx
+import logging
 from ..config import TRADIER_BASE_URL, TRADIER_API_TOKEN, TRADIER_RATE_LIMIT
 from .rate_limiter import RateLimiter
+
+logger = logging.getLogger(__name__)
 
 # Global rate limiter instance (shared across all requests)
 _rate_limiter = RateLimiter(max_requests=TRADIER_RATE_LIMIT, window_seconds=60)
@@ -78,3 +81,173 @@ async def get_option_chain_tradier(symbol: str, expiry: str):
     # filter to exact expiry for safety
     contracts = [c for c in contracts if c["expiry"] == expiry]
     return {"symbol": symbol.upper(), "expiry": expiry, "contracts": contracts}
+
+async def get_options_expirations_tradier(symbol: str):
+    """
+    Fetch available expiration dates for a specific underlying symbol from Tradier.
+    Docs: GET /markets/options/expirations?symbol=...&includeAllRoots=true&strikes=true
+    
+    Rate limiting: Automatically enforces Tradier's rate limits
+    - Production: 120 requests per minute
+    - Sandbox: 60 requests per minute
+    See: https://docs.tradier.com/docs/rate-limiting
+    """
+    if not TRADIER_API_TOKEN:
+        raise RuntimeError("TRADIER_API_TOKEN not set")
+
+    # Wait if necessary to respect rate limits
+    await _rate_limiter.acquire()
+
+    headers = {
+        "Authorization": f"Bearer {TRADIER_API_TOKEN}",
+        "Accept": "application/json",
+    }
+    params = {
+        "symbol": symbol.upper(),
+        "includeAllRoots": "true",
+        "strikes": "true"
+    }
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        r = await client.get(f"{TRADIER_BASE_URL}/markets/options/expirations",
+                             headers=headers, params=params)
+        
+        # Update rate limiter state from response headers
+        _rate_limiter.update_from_headers(r.headers)
+        
+        r.raise_for_status()
+        data = r.json()
+        
+        # Debug: log the raw response structure
+        logger.debug(f"Tradier expirations API response for {symbol}: {data}")
+
+    # Extract expirations and strikes from response
+    # When strikes=true, structure: {"expirations": {"date": [{"expiration_date": "...", "strikes": {"strike": [...]}}]}}
+    # Without strikes: {"expirations": {"date": ["2024-01-19", ...]}}
+    # Handle various response structures
+    dates = []
+    expiration_data = []  # List of {date, strikes} objects
+    
+    if "expirations" in data:
+        expirations = data["expirations"]
+        
+        # Case 1: expirations is a dict with "date" key
+        if isinstance(expirations, dict):
+            date_value = expirations.get("date")
+            if date_value is not None:
+                if isinstance(date_value, list):
+                    # Check if it's a list of objects (with strikes) or strings (simple dates)
+                    for item in date_value:
+                        if isinstance(item, dict):
+                            # Object with expiration_date and strikes
+                            exp_date = item.get("expiration_date") or item.get("date")
+                            strikes_obj = item.get("strikes", {})
+                            strikes_list = strikes_obj.get("strike", []) if isinstance(strikes_obj, dict) else []
+                            
+                            # Normalize strikes to list of floats
+                            if isinstance(strikes_list, list):
+                                strikes = [_f(s) for s in strikes_list if s is not None]
+                            elif isinstance(strikes_list, (int, float)):
+                                strikes = [_f(strikes_list)]
+                            else:
+                                strikes = []
+                            
+                            if exp_date:
+                                dates.append(exp_date)
+                                expiration_data.append({
+                                    "date": exp_date,
+                                    "strikes": strikes
+                                })
+                        elif isinstance(item, str):
+                            # Simple date string (no strikes)
+                            dates.append(item)
+                            expiration_data.append({
+                                "date": item,
+                                "strikes": []
+                            })
+                elif isinstance(date_value, str):
+                    # Single date as string
+                    dates.append(date_value)
+                    expiration_data.append({
+                        "date": date_value,
+                        "strikes": []
+                    })
+            
+            # Case 1b: expirations is a dict with "expiration" key (alternative structure)
+            expiration_list = expirations.get("expiration")
+            if expiration_list is not None:
+                if isinstance(expiration_list, list):
+                    # Extract dates and strikes from list of expiration objects
+                    for exp in expiration_list:
+                        if isinstance(exp, dict):
+                            exp_date = exp.get("date") or exp.get("expiration_date")
+                            strikes_obj = exp.get("strikes", {})
+                            strikes_list = strikes_obj.get("strike", []) if isinstance(strikes_obj, dict) else []
+                            
+                            # Normalize strikes to list of floats
+                            if isinstance(strikes_list, list):
+                                strikes = [_f(s) for s in strikes_list if s is not None]
+                            elif isinstance(strikes_list, (int, float)):
+                                strikes = [_f(strikes_list)]
+                            else:
+                                strikes = []
+                            
+                            if exp_date:
+                                dates.append(exp_date)
+                                expiration_data.append({
+                                    "date": exp_date,
+                                    "strikes": strikes
+                                })
+                        elif isinstance(exp, str):
+                            # Direct date string
+                            dates.append(exp)
+                            expiration_data.append({
+                                "date": exp,
+                                "strikes": []
+                            })
+                elif isinstance(expiration_list, dict):
+                    # Single expiration object
+                    exp_date = expiration_list.get("date") or expiration_list.get("expiration_date")
+                    strikes_obj = expiration_list.get("strikes", {})
+                    strikes_list = strikes_obj.get("strike", []) if isinstance(strikes_obj, dict) else []
+                    
+                    # Normalize strikes to list of floats
+                    if isinstance(strikes_list, list):
+                        strikes = [_f(s) for s in strikes_list if s is not None]
+                    elif isinstance(strikes_list, (int, float)):
+                        strikes = [_f(strikes_list)]
+                    else:
+                        strikes = []
+                    
+                    if exp_date:
+                        dates.append(exp_date)
+                        expiration_data.append({
+                            "date": exp_date,
+                            "strikes": strikes
+                        })
+        
+        # Case 2: expirations is directly a list
+        elif isinstance(expirations, list):
+            for item in expirations:
+                if isinstance(item, str):
+                    dates.append(item)
+                    expiration_data.append({
+                        "date": item,
+                        "strikes": []
+                    })
+    else:
+        # Log if expirations key is missing
+        logger.warning(f"Tradier API response missing 'expirations' key. Full response: {data}")
+    
+    # Filter out None, empty strings, and ensure we have a list
+    dates = [d for d in dates if d and isinstance(d, str)]
+    
+    # If still empty, log the full response for debugging
+    if not dates:
+        logger.warning(f"No expirations found in response for {symbol}. Full response: {data}")
+    
+    return {
+        "symbol": symbol.upper(),
+        "expirations": dates,
+        "expiration_data": expiration_data  # Includes both dates and strikes
+    }

@@ -5,6 +5,7 @@ Can be set via environment variables at build/deploy time, or read from git.
 import os
 import subprocess
 from typing import Optional
+from datetime import datetime
 
 
 def get_git_sha() -> str:
@@ -47,11 +48,24 @@ def get_version() -> str:
     return os.getenv("API_VERSION", "0.2.0")
 
 
-def get_version_info() -> dict:
-    """Get complete version information."""
-    return {
+def get_version_info(occ_last_update: datetime | None = None) -> dict:
+    """
+    Get complete version information.
+    
+    Args:
+        occ_last_update: Optional timestamp of last OCC symbols update
+    """
+    info = {
         "version": get_version(),
         "git_sha": get_git_sha(),
         "git_tag": get_git_tag(),
     }
+    
+    # Add OCC last update timestamp if provided
+    if occ_last_update:
+        info["occ_symbols_last_update"] = occ_last_update.isoformat()
+    else:
+        info["occ_symbols_last_update"] = None
+    
+    return info
 

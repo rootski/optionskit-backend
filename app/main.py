@@ -10,7 +10,7 @@ from .config import ALLOW_ORIGINS, MASSIVE_API_KEY, TRADIER_API_TOKEN
 from .vendors.tradier import get_option_chain_tradier, get_options_expirations_tradier
 from .vendors.massive import get_option_chain_snapshot  # fallback vendor
 from .version import get_version_info
-from .services.occ_symbols import refresh_symbols, get_symbols, get_symbol_count, get_last_update
+from .services.occ_symbols import refresh_symbols, get_symbols, get_symbol_count, get_last_update as get_occ_last_update
 
 logger = logging.getLogger(__name__)
 
@@ -69,8 +69,9 @@ def secrets_health():
 
 @app.get("/version")
 def version():
-    """Returns the deployed version information including git SHA and tag."""
-    return get_version_info()
+    """Returns the deployed version information including git SHA, tag, and OCC symbols last update."""
+    occ_last_update = get_occ_last_update()
+    return get_version_info(occ_last_update=occ_last_update)
 
 @app.get("/v1/markets/chain")
 async def chain(symbol: str = Query(...), expiry: str = Query(...)):
@@ -116,7 +117,7 @@ async def get_options_symbols():
     """
     try:
         symbols = get_symbols()
-        last_update = get_last_update()
+        last_update = get_occ_last_update()
         
         return {
             "symbols": sorted(list(symbols)),  # Convert set to sorted list for JSON
@@ -137,7 +138,7 @@ async def refresh_options_symbols():
     try:
         await refresh_symbols(raise_on_error=True)
         symbols = get_symbols()
-        last_update = get_last_update()
+        last_update = get_occ_last_update()
         
         return {
             "status": "success",

@@ -78,6 +78,7 @@ jobs:
         context: .
         push: false
         tags: optionskit-backend:test
+        load: true  # Load image into local Docker daemon
         cache-from: type=gha
         cache-to: type=gha,mode=max
         build-args: |
@@ -87,13 +88,25 @@ jobs:
     
     - name: Test Docker image health
       run: |
+        # Verify image exists
+        docker images | grep optionskit-backend || exit 1
+        
+        # Run container
         docker run -d -p 8000:8000 --name test-container \
           -e TRADIER_API_TOKEN=test \
           -e MASSIVE_API_KEY=test \
           optionskit-backend:test
-        sleep 15  # Wait for app to start
+        
+        # Wait for app to start
+        sleep 15
+        
+        # Test health endpoint
         curl -f http://localhost:8000/healthz || exit 1
+        
+        # Test version endpoint
         curl -f http://localhost:8000/version || exit 1
+        
+        # Cleanup
         docker stop test-container
         docker rm test-container
 

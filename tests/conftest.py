@@ -7,56 +7,48 @@ from unittest.mock import AsyncMock, MagicMock
 from fastapi.testclient import TestClient
 from datetime import datetime
 
+# Import and patch BEFORE app import to prevent real API calls
+import sys
+from unittest.mock import patch
+
+# Create a patcher that will be active during app import
+_patchers = []
+
+def pytest_configure(config):
+    """Configure pytest - set up mocks before any imports."""
+    # Patch the functions before app is imported
+    patcher1 = patch('app.services.occ_symbols.refresh_symbols', new_callable=AsyncMock)
+    patcher2 = patch('app.services.occ_symbols.get_symbols', return_value=set())
+    patcher3 = patch('app.services.occ_symbols.get_symbol_count', return_value=0)
+    patcher4 = patch('app.services.occ_symbols.get_last_update', return_value=None)
+    patcher5 = patch('app.main.scheduler.start')
+    patcher6 = patch('app.main.scheduler.shutdown')
+    patcher7 = patch('app.main.scheduler.add_job')
+    
+    _patchers.extend([patcher1, patcher2, patcher3, patcher4, patcher5, patcher6, patcher7])
+    
+    # Start all patchers
+    for p in _patchers:
+        p.start()
+
+def pytest_unconfigure(config):
+    """Clean up patches after tests."""
+    for p in _patchers:
+        p.stop()
+
+# Now import app with patches active
 from app.main import app
+from app.services import occ_symbols
+from app.main import scheduler
 
 
 @pytest.fixture(autouse=True)
-def mock_startup(monkeypatch):
-    """Automatically mock startup functions to prevent real API calls."""
-    # Mock refresh_symbols to prevent real API calls during app startup
-    from app.services import occ_symbols
-    
-    # Initialize with empty symbols so tests can set their own via fixtures
-    test_symbols = set()
-    test_last_update = None
-    
-    async def mock_refresh_startup(raise_on_error: bool = False):
-        # Don't actually refresh during test startup
-        # Tests can override this with their own mock_occ_symbols fixture
-        nonlocal test_symbols, test_last_update
-        from datetime import datetime
-        test_last_update = datetime.now()
-    
-    def mock_get_symbols():
-        return test_symbols.copy()
-    
-    def mock_get_symbol_count():
-        return len(test_symbols)
-    
-    def mock_get_last_update():
-        return test_last_update
-    
-    # Mock all OCC symbols functions
-    monkeypatch.setattr(occ_symbols, 'refresh_symbols', mock_refresh_startup)
-    monkeypatch.setattr(occ_symbols, 'get_symbols', mock_get_symbols)
-    monkeypatch.setattr(occ_symbols, 'get_symbol_count', mock_get_symbol_count)
-    monkeypatch.setattr(occ_symbols, 'get_last_update', mock_get_last_update)
-    
-    # Also mock the scheduler to prevent it from starting
-    from app.main import scheduler
-    
-    def mock_scheduler_start():
-        pass
-    
-    def mock_scheduler_shutdown(wait=False):
-        pass
-    
-    def mock_scheduler_add_job(*args, **kwargs):
-        pass
-    
-    monkeypatch.setattr(scheduler, 'start', mock_scheduler_start)
-    monkeypatch.setattr(scheduler, 'shutdown', mock_scheduler_shutdown)
-    monkeypatch.setattr(scheduler, 'add_job', mock_scheduler_add_job)
+def reset_mocks():
+    """Reset mocks before each test."""
+    occ_symbols.get_symbols.return_value = set()
+    occ_symbols.get_symbol_count.return_value = 0
+    occ_symbols.get_last_update.return_value = None
+    yield
 
 
 @pytest.fixture
@@ -68,9 +60,8 @@ def client():
 @pytest.fixture
 def mock_occ_symbols(monkeypatch):
     """Mock OCC symbols service to return test symbols."""
-    from app.services import occ_symbols
-    
     test_symbols = {"AAPL", "MSFT", "GOOGL", "NFLX", "TSLA"}
+    test_last_update = datetime(2024, 1, 15, 2, 0, 0)
     
     def mock_get_symbols():
         return test_symbols.copy()
@@ -79,7 +70,7 @@ def mock_occ_symbols(monkeypatch):
         return len(test_symbols)
     
     def mock_get_last_update():
-        return datetime(2024, 1, 15, 2, 0, 0)
+        return test_last_update
     
     monkeypatch.setattr(occ_symbols, 'get_symbols', mock_get_symbols)
     monkeypatch.setattr(occ_symbols, 'get_symbol_count', mock_get_symbol_count)
@@ -92,6 +83,7 @@ def mock_occ_symbols(monkeypatch):
 def mock_tradier_expirations(monkeypatch):
     """Mock Tradier expirations API response."""
     from app.vendors import tradier
+    from app import main
     
     async def mock_get_expirations(symbol: str):
         return {
@@ -113,7 +105,9 @@ def mock_tradier_expirations(monkeypatch):
             ]
         }
     
+    # Patch both the module function and where it's imported in main
     monkeypatch.setattr(tradier, 'get_options_expirations_tradier', mock_get_expirations)
+    monkeypatch.setattr(main, 'get_options_expirations_tradier', mock_get_expirations)
     return mock_get_expirations
 
 
@@ -121,6 +115,7 @@ def mock_tradier_expirations(monkeypatch):
 def mock_tradier_chain(monkeypatch):
     """Mock Tradier options chain API response."""
     from app.vendors import tradier
+    from app import main
     
     async def mock_get_chain(symbol: str, expiry: str):
         return {
@@ -162,19 +157,18 @@ def mock_tradier_chain(monkeypatch):
             ]
         }
     
+    # Patch both the module function and where it's imported in main
     monkeypatch.setattr(tradier, 'get_option_chain_tradier', mock_get_chain)
+    monkeypatch.setattr(main, 'get_option_chain_tradier', mock_get_chain)
     return mock_get_chain
 
 
 @pytest.fixture
 def mock_occ_refresh(monkeypatch):
     """Mock OCC symbols refresh function."""
-    from app.services import occ_symbols
-    
     async def mock_refresh(raise_on_error: bool = False):
         # Simulate successful refresh
         pass
     
     monkeypatch.setattr(occ_symbols, 'refresh_symbols', mock_refresh)
     return mock_refresh
-

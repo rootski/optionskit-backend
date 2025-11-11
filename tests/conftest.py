@@ -60,6 +60,8 @@ def client():
 @pytest.fixture
 def mock_occ_symbols(monkeypatch):
     """Mock OCC symbols service to return test symbols."""
+    from app import main
+    
     test_symbols = {"AAPL", "MSFT", "GOOGL", "NFLX", "TSLA"}
     test_last_update = datetime(2024, 1, 15, 2, 0, 0)
     
@@ -72,9 +74,14 @@ def mock_occ_symbols(monkeypatch):
     def mock_get_last_update():
         return test_last_update
     
+    # Patch both the module functions and where they're imported in main
     monkeypatch.setattr(occ_symbols, 'get_symbols', mock_get_symbols)
     monkeypatch.setattr(occ_symbols, 'get_symbol_count', mock_get_symbol_count)
     monkeypatch.setattr(occ_symbols, 'get_last_update', mock_get_last_update)
+    
+    # Also patch in main where they're imported
+    monkeypatch.setattr(main, 'get_symbols', mock_get_symbols)
+    monkeypatch.setattr(main, 'get_occ_last_update', mock_get_last_update)
     
     return test_symbols
 

@@ -10,6 +10,55 @@ from datetime import datetime
 from app.main import app
 
 
+@pytest.fixture(autouse=True)
+def mock_startup(monkeypatch):
+    """Automatically mock startup functions to prevent real API calls."""
+    # Mock refresh_symbols to prevent real API calls during app startup
+    from app.services import occ_symbols
+    
+    # Initialize with empty symbols so tests can set their own via fixtures
+    test_symbols = set()
+    test_last_update = None
+    
+    async def mock_refresh_startup(raise_on_error: bool = False):
+        # Don't actually refresh during test startup
+        # Tests can override this with their own mock_occ_symbols fixture
+        nonlocal test_symbols, test_last_update
+        from datetime import datetime
+        test_last_update = datetime.now()
+    
+    def mock_get_symbols():
+        return test_symbols.copy()
+    
+    def mock_get_symbol_count():
+        return len(test_symbols)
+    
+    def mock_get_last_update():
+        return test_last_update
+    
+    # Mock all OCC symbols functions
+    monkeypatch.setattr(occ_symbols, 'refresh_symbols', mock_refresh_startup)
+    monkeypatch.setattr(occ_symbols, 'get_symbols', mock_get_symbols)
+    monkeypatch.setattr(occ_symbols, 'get_symbol_count', mock_get_symbol_count)
+    monkeypatch.setattr(occ_symbols, 'get_last_update', mock_get_last_update)
+    
+    # Also mock the scheduler to prevent it from starting
+    from app.main import scheduler
+    
+    def mock_scheduler_start():
+        pass
+    
+    def mock_scheduler_shutdown(wait=False):
+        pass
+    
+    def mock_scheduler_add_job(*args, **kwargs):
+        pass
+    
+    monkeypatch.setattr(scheduler, 'start', mock_scheduler_start)
+    monkeypatch.setattr(scheduler, 'shutdown', mock_scheduler_shutdown)
+    monkeypatch.setattr(scheduler, 'add_job', mock_scheduler_add_job)
+
+
 @pytest.fixture
 def client():
     """Create a test client for the API."""

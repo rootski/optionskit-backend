@@ -17,3 +17,13 @@ build/
 .vscode/
 .idea/
 *.log
+
+# Test artifacts
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.tox/
+junit.xml
+*.cover
+.hypothesis/

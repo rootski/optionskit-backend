@@ -1,0 +1,73 @@
+name: Test Suite
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  test:
+    name: Run Test Suite
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0  # Full history for git SHA
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-asyncio pytest-cov httpx
+    
+    - name: Run tests
+      env:
+        TRADIER_API_TOKEN: ${{ secrets.TRADIER_API_TOKEN || 'test-token' }}
+        MASSIVE_API_KEY: ${{ secrets.MASSIVE_API_KEY || 'test-key' }}
+        ALLOW_ORIGINS: "*"
+      run: |
+        pytest tests/ -v \
+          --cov=app \
+          --cov-report=xml \
+          --cov-report=term-missing \
+          --cov-report=html \
+          --junitxml=junit.xml
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      if: always()
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+    
+    - name: Upload test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: test-results
+        path: |
+          junit.xml
+          htmlcov/
+    
+    - name: Test status
+      if: failure()
+      run: |
+        echo "❌ Tests failed! Deployment blocked."
+        exit 1
+    
+    - name: Test status
+      if: success()
+      run: |
+        echo "✅ All tests passed!"
+

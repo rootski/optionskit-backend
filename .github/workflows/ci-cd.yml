@@ -210,11 +210,26 @@ jobs:
             echo "Service already configured with latest image"
           fi
           
-          # Trigger deployment
-          echo "Triggering App Runner deployment..."
-          aws apprunner start-deployment \
-            --service-arn ${{ secrets.APP_RUNNER_SERVICE_ARN }}
-          echo "✅ Deployment triggered successfully"
+          # Check service state before triggering deployment
+          SERVICE_STATE=$(aws apprunner describe-service \
+            --service-arn ${{ secrets.APP_RUNNER_SERVICE_ARN }} \
+            --query 'Service.Status' \
+            --output text)
+          
+          echo "Current service state: $SERVICE_STATE"
+          
+          # Only trigger deployment if service is RUNNING
+          if [ "$SERVICE_STATE" = "RUNNING" ]; then
+            echo "Triggering App Runner deployment..."
+            aws apprunner start-deployment \
+              --service-arn ${{ secrets.APP_RUNNER_SERVICE_ARN }} || echo "⚠️ Failed to start deployment. Service may auto-deploy if AutoDeploymentsEnabled is true."
+            echo "✅ Deployment triggered successfully"
+          else
+            echo "⚠️ Service is in '$SERVICE_STATE' state. Skipping explicit deployment trigger."
+            echo "   If AutoDeploymentsEnabled is true, App Runner will auto-deploy when the image changes."
+            echo "   If you need to trigger manually, wait for service to be RUNNING and run:"
+            echo "   aws apprunner start-deployment --service-arn ${{ secrets.APP_RUNNER_SERVICE_ARN }}"
+          fi
         else
           echo "⚠️ APP_RUNNER_SERVICE_ARN not set. App Runner will auto-deploy from ECR if configured."
         fi

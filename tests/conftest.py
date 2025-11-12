@@ -24,8 +24,9 @@ def pytest_configure(config):
     patcher5 = patch('app.main.scheduler.start')
     patcher6 = patch('app.main.scheduler.shutdown')
     patcher7 = patch('app.main.scheduler.add_job')
+    patcher8 = patch('app.services.snapshot_quotes.start_background_task')  # Prevent auto-start in tests
     
-    _patchers.extend([patcher1, patcher2, patcher3, patcher4, patcher5, patcher6, patcher7])
+    _patchers.extend([patcher1, patcher2, patcher3, patcher4, patcher5, patcher6, patcher7, patcher8])
     
     # Start all patchers
     for p in _patchers:

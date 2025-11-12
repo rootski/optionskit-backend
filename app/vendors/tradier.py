@@ -251,3 +251,91 @@ async def get_options_expirations_tradier(symbol: str):
         "expirations": dates,
         "expiration_data": expiration_data  # Includes both dates and strikes
     }
+
+
+async def get_quotes_tradier(symbols: list[str]) -> list[dict]:
+    """
+    Fetch quotes for multiple symbols from Tradier.
+    Docs: GET /markets/quotes?symbols=SYM1,SYM2,SYM3
+    
+    Args:
+        symbols: List of symbols to fetch quotes for (comma-separated in API call)
+    
+    Returns:
+        List of normalized quote dictionaries with fields:
+        - symbol: str
+        - description: str
+        - last: float
+        - bid: float
+        - ask: float
+        - volume: int
+        - exchange: str (optional)
+        - trade_time: str (optional)
+        - change: float (optional)
+        - change_percent: float (optional)
+    
+    Rate limiting: Automatically enforces Tradier's rate limits
+    - Production: 120 requests per minute
+    - Sandbox: 60 requests per minute
+    """
+    if not TRADIER_API_TOKEN:
+        raise RuntimeError("TRADIER_API_TOKEN not set")
+    
+    if not symbols:
+        return []
+    
+    # Wait if necessary to respect rate limits
+    await _rate_limiter.acquire()
+    
+    headers = {
+        "Authorization": f"Bearer {TRADIER_API_TOKEN}",
+        "Accept": "application/json",
+    }
+    # Join symbols with comma
+    symbols_str = ",".join(s.upper() for s in symbols)
+    params = {"symbols": symbols_str}
+    
+    async with httpx.AsyncClient(timeout=20) as client:
+        r = await client.get(f"{TRADIER_BASE_URL}/markets/quotes",
+                             headers=headers, params=params)
+        
+        # Update rate limiter state from response headers
+        _rate_limiter.update_from_headers(r.headers)
+        
+        r.raise_for_status()
+        data = r.json()
+    
+    # Parse response structure
+    # Tradier returns: {"quotes": {"quote": [...]}} or {"quotes": {"quote": {...}}} for single quote
+    quotes_raw = data.get("quotes", {})
+    if not quotes_raw:
+        logger.warning(f"No quotes in Tradier response: {data}")
+        return []
+    
+    quote_items = quotes_raw.get("quote", [])
+    if isinstance(quote_items, dict):
+        quote_items = [quote_items]
+    elif not isinstance(quote_items, list):
+        logger.warning(f"Unexpected quote structure: {quote_items}")
+        return []
+    
+    # Normalize quotes
+    normalized = []
+    for item in quote_items:
+        if not isinstance(item, dict):
+            continue
+        
+        normalized.append({
+            "symbol": (item.get("symbol") or "").upper(),
+            "description": item.get("description") or "",
+            "last": _f(item.get("last")),
+            "bid": _f(item.get("bid")),
+            "ask": _f(item.get("ask")),
+            "volume": _i(item.get("volume")),
+            "exchange": item.get("exchange") or "",
+            "trade_time": item.get("trade_time") or "",
+            "change": _f(item.get("change")),
+            "change_percent": _f(item.get("change_percent")),
+        })
+    
+    return normalized

@@ -17,3 +17,8 @@ TRADIER_RATE_LIMIT = 60 if TRADIER_IS_SANDBOX else 120  # 60 for sandbox, 120 fo
 
 # CORS
 ALLOW_ORIGINS = os.getenv("ALLOW_ORIGINS", "*")
+
+# Quotes snapshot service configuration
+BATCH_SIZE = int(os.getenv("BATCH_SIZE", "860"))
+REFRESH_INTERVAL_SEC = int(os.getenv("REFRESH_INTERVAL_SEC", "61"))
+MAX_CONCURRENCY = int(os.getenv("MAX_CONCURRENCY", "8"))

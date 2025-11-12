@@ -143,14 +143,29 @@ async def _background_refresh_loop():
     """
     logger.info(f"Starting quotes snapshot background refresh loop (interval: {REFRESH_INTERVAL_SEC}s)")
     
-    # Wait a bit for OCC symbols to be initialized on startup
-    await asyncio.sleep(1)
+    # Wait for OCC symbols to be initialized on startup
+    # Retry up to 10 times (10 seconds total) to ensure symbols are loaded
+    max_wait_attempts = 10
+    symbols_ready = False
+    for attempt in range(max_wait_attempts):
+        symbols = get_symbols()
+        if len(symbols) > 0:
+            symbols_ready = True
+            logger.info(f"OCC symbols ready: {len(symbols)} symbols available (waited {attempt} seconds)")
+            break
+        logger.info(f"Waiting for OCC symbols to be initialized... (attempt {attempt + 1}/{max_wait_attempts})")
+        await asyncio.sleep(1)
+    
+    if not symbols_ready:
+        logger.error("OCC symbols not available after waiting - quotes snapshot may be empty")
     
     # Do immediate refresh on startup
     try:
         logger.info("Performing initial quotes snapshot refresh on startup")
         success = await _refresh_quotes_snapshot()
-        if not success:
+        if success:
+            logger.info(f"Initial quotes snapshot refresh successful: {SNAPSHOT['count']} quotes loaded")
+        else:
             logger.warning("Initial quotes snapshot refresh failed - keeping empty snapshot")
     except Exception as e:
         logger.error(f"Unexpected error in initial refresh: {e}", exc_info=True)
@@ -159,7 +174,9 @@ async def _background_refresh_loop():
     while True:
         try:
             success = await _refresh_quotes_snapshot()
-            if not success:
+            if success:
+                logger.info(f"Quotes snapshot refresh successful: {SNAPSHOT['count']} quotes")
+            else:
                 logger.warning("Quotes snapshot refresh failed - keeping previous snapshot")
         except Exception as e:
             logger.error(f"Unexpected error in background refresh loop: {e}", exc_info=True)
@@ -174,11 +191,28 @@ def start_background_task():
     Should be called during FastAPI startup.
     """
     global _background_task
-    if _background_task is None or _background_task.done():
-        _background_task = asyncio.create_task(_background_refresh_loop())
-        logger.info("Quotes snapshot background task started")
-    else:
-        logger.warning("Background task already running")
+    try:
+        if _background_task is None or _background_task.done():
+            # Get the current event loop (should exist in FastAPI context)
+            loop = asyncio.get_event_loop()
+            _background_task = loop.create_task(_background_refresh_loop())
+            logger.info("Quotes snapshot background task created and started")
+        else:
+            logger.warning("Background task already running")
+    except RuntimeError as e:
+        # If no event loop exists, try to get or create one
+        logger.warning(f"No event loop found, attempting to create one: {e}")
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_closed():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            _background_task = loop.create_task(_background_refresh_loop())
+            logger.info("Quotes snapshot background task created with new event loop")
+        except Exception as e2:
+            logger.error(f"Failed to start background task: {e2}", exc_info=True)
+    except Exception as e:
+        logger.error(f"Failed to start background task: {e}", exc_info=True)
 
 
 def stop_background_task():
@@ -233,4 +267,41 @@ def get_last_update() -> Dict:
         "last_update": SNAPSHOT["last_update"].isoformat() if SNAPSHOT["last_update"] else None,
         "count": SNAPSHOT["count"]
     }
+
+
+def get_background_task_status() -> Dict:
+    """
+    Get the status of the background refresh task.
+    Useful for diagnostics.
+    
+    Returns:
+        Dictionary with task status information
+    """
+    global _background_task
+    status = {
+        "running": False,
+        "done": False,
+        "cancelled": False,
+        "exception": None
+    }
+    
+    if _background_task is None:
+        status["running"] = False
+        status["message"] = "Background task not started"
+    else:
+        status["running"] = not _background_task.done()
+        status["done"] = _background_task.done()
+        status["cancelled"] = _background_task.cancelled()
+        
+        if _background_task.done():
+            try:
+                # Try to get the exception if the task failed
+                _background_task.exception()
+            except Exception as e:
+                status["exception"] = str(e)
+            status["message"] = "Background task completed" if not _background_task.cancelled() else "Background task cancelled"
+        else:
+            status["message"] = "Background task is running"
+    
+    return status
 

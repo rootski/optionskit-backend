@@ -2,7 +2,8 @@
 import logging
 from fastapi import APIRouter, Query, HTTPException
 
-from ..services.snapshot_quotes import get_snapshot, get_last_update
+from ..services.snapshot_quotes import get_snapshot, get_last_update, get_background_task_status
+from ..services.occ_symbols import get_symbol_count
 
 logger = logging.getLogger(__name__)
 
@@ -47,4 +48,29 @@ async def quotes_last_update():
     except Exception as e:
         logger.error(f"Error retrieving quotes last update: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to retrieve quotes last update: {e}")
+
+
+@router.get("/v1/markets/quotes/diagnostic")
+async def quotes_diagnostic():
+    """
+    Diagnostic endpoint to check the status of the quotes snapshot service.
+    Useful for debugging why quotes might not be available.
+    """
+    try:
+        task_status = get_background_task_status()
+        occ_symbol_count = get_symbol_count()
+        snapshot_info = get_last_update()
+        
+        return {
+            "background_task": task_status,
+            "occ_symbols": {
+                "count": occ_symbol_count,
+                "available": occ_symbol_count > 0
+            },
+            "snapshot": snapshot_info,
+            "status": "healthy" if (task_status.get("running") and snapshot_info.get("count", 0) > 0) else "degraded"
+        }
+    except Exception as e:
+        logger.error(f"Error retrieving quotes diagnostic: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve quotes diagnostic: {e}")
 

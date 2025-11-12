@@ -119,6 +119,9 @@ jobs:
     environment: prod  # Use the "prod" environment with its secrets
     
     steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v2
       with:
@@ -126,14 +129,93 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
     
-    - name: Trigger App Runner deployment
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    
+    - name: Extract version from git
+      id: version
       run: |
-        echo "✅ Tests passed! Triggering App Runner deployment..."
+        # Get short SHA
+        SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+        echo "sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+        
+        # Try to extract version from git tag, or use SHA-based version
+        VERSION=$(git describe --tags --exact-match 2>/dev/null || echo "v0.4.2-${SHORT_SHA}")
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Using version: $VERSION"
+    
+    - name: Build, tag, and push image to Amazon ECR
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        ECR_REPOSITORY: optionskit-backend
+        IMAGE_TAG: ${{ steps.version.outputs.version }}
+        IMAGE_TAG_LATEST: latest
+        IMAGE_TAG_SHA: ${{ steps.version.outputs.sha }}
+      run: |
+        # Build and push with version tag
+        docker build \
+          --build-arg API_VERSION=${{ steps.version.outputs.version }} \
+          --build-arg GIT_SHA=${{ github.sha }} \
+          --build-arg GIT_TAG=${{ steps.version.outputs.version }} \
+          -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+          -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG_LATEST \
+          -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG_SHA \
+          .
+        
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG_LATEST
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG_SHA
+        
+        echo "✅ Pushed image: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+        echo "✅ Pushed image: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG_LATEST"
+        echo "✅ Pushed image: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG_SHA"
+    
+    - name: Update App Runner service to use latest image
+      run: |
         if [ -n "${{ secrets.APP_RUNNER_SERVICE_ARN }}" ]; then
+          ECR_REGISTRY=${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY=optionskit-backend
+          IMAGE_URI="${ECR_REGISTRY}/${ECR_REPOSITORY}:latest"
+          
+          echo "Updating App Runner service to use: $IMAGE_URI"
+          
+          # Get current service configuration
+          SERVICE_CONFIG=$(aws apprunner describe-service \
+            --service-arn ${{ secrets.APP_RUNNER_SERVICE_ARN }} \
+            --query 'Service.SourceConfiguration.ImageRepository.ImageIdentifier' \
+            --output text)
+          
+          echo "Current image: $SERVICE_CONFIG"
+          
+          # Update service to use latest image (if not already)
+          if [ "$SERVICE_CONFIG" != "$IMAGE_URI" ]; then
+            echo "Updating App Runner service configuration..."
+            aws apprunner update-service \
+              --service-arn ${{ secrets.APP_RUNNER_SERVICE_ARN }} \
+              --source-configuration '{
+                "ImageRepository": {
+                  "ImageIdentifier": "'"$IMAGE_URI"'",
+                  "ImageConfiguration": {
+                    "Port": "8000"
+                  },
+                  "ImageRepositoryType": "ECR"
+                },
+                "AutoDeploymentsEnabled": true
+              }' || echo "⚠️ Failed to update service config. You may need to update manually in AWS console."
+          else
+            echo "Service already configured with latest image"
+          fi
+          
+          # Trigger deployment
+          echo "Triggering App Runner deployment..."
           aws apprunner start-deployment \
             --service-arn ${{ secrets.APP_RUNNER_SERVICE_ARN }}
-          echo "Deployment triggered successfully"
+          echo "✅ Deployment triggered successfully"
         else
-          echo "⚠️ APP_RUNNER_SERVICE_ARN not set. App Runner will auto-deploy from GitHub."
+          echo "⚠️ APP_RUNNER_SERVICE_ARN not set. App Runner will auto-deploy from ECR if configured."
         fi
 

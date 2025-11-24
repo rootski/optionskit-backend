@@ -22,3 +22,6 @@ ALLOW_ORIGINS = os.getenv("ALLOW_ORIGINS", "*")
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", "860"))
 REFRESH_INTERVAL_SEC = int(os.getenv("REFRESH_INTERVAL_SEC", "61"))
 MAX_CONCURRENCY = int(os.getenv("MAX_CONCURRENCY", "8"))
+
+# Rho Greek feature flag (default: enabled)
+ENABLE_RHO_GREEK = os.getenv("ENABLE_RHO_GREEK", "true").lower() == "true"

@@ -144,7 +144,8 @@ def mock_tradier_chain(monkeypatch):
                     "gamma": 0.02,
                     "theta": -0.05,
                     "vega": 0.15,
-                    "iv": 0.25
+                    "iv": 0.25,
+                    "rho": 0.01
                 },
                 {
                     "symbol": symbol.upper(),
@@ -160,7 +161,8 @@ def mock_tradier_chain(monkeypatch):
                     "gamma": 0.02,
                     "theta": -0.05,
                     "vega": 0.15,
-                    "iv": 0.25
+                    "iv": 0.25,
+                    "rho": -0.01
                 }
             ]
         }
@@ -168,6 +170,80 @@ def mock_tradier_chain(monkeypatch):
     # Patch both the module function and where it's imported in main
     monkeypatch.setattr(tradier, 'get_option_chain_tradier', mock_get_chain)
     monkeypatch.setattr(main, 'get_option_chain_tradier', mock_get_chain)
+    return mock_get_chain
+
+
+@pytest.fixture
+def mock_tradier_chain_no_rho(monkeypatch):
+    """Mock Tradier options chain API response without rho in greeks."""
+    from app.vendors import tradier
+    from app import main
+    
+    async def mock_get_chain(symbol: str, expiry: str):
+        return {
+            "symbol": symbol.upper(),
+            "expiry": expiry,
+            "contracts": [
+                {
+                    "symbol": symbol.upper(),
+                    "expiry": expiry,
+                    "strike": 100.0,
+                    "type": "call",
+                    "bid": 5.50,
+                    "ask": 5.60,
+                    "last": 5.55,
+                    "volume": 1000,
+                    "open_interest": 5000,
+                    "delta": 0.5,
+                    "gamma": 0.02,
+                    "theta": -0.05,
+                    "vega": 0.15,
+                    "iv": 0.25,
+                    "rho": None
+                }
+            ]
+        }
+    
+    # Patch both the module function and where it's imported in main
+    monkeypatch.setattr(tradier, 'get_option_chain_tradier', mock_get_chain)
+    monkeypatch.setattr(main, 'get_option_chain_tradier', mock_get_chain)
+    return mock_get_chain
+
+
+@pytest.fixture
+def mock_massive_chain(monkeypatch):
+    """Mock Massive/Polygon options chain API response."""
+    from app.vendors import massive
+    from app import main
+    
+    async def mock_get_chain(symbol: str, expiry: str):
+        return {
+            "symbol": symbol.upper(),
+            "expiry": expiry,
+            "contracts": [
+                {
+                    "symbol": symbol.upper(),
+                    "expiry": expiry,
+                    "strike": 100.0,
+                    "type": "call",
+                    "bid": 5.50,
+                    "ask": 5.60,
+                    "last": 5.55,
+                    "volume": 1000,
+                    "open_interest": 5000,
+                    "delta": 0.5,
+                    "gamma": 0.02,
+                    "theta": -0.05,
+                    "vega": 0.15,
+                    "iv": 0.25,
+                    "rho": None
+                }
+            ]
+        }
+    
+    # Patch both the module function and where it's imported in main
+    monkeypatch.setattr(massive, 'get_option_chain_snapshot', mock_get_chain)
+    monkeypatch.setattr(main, 'get_option_chain_snapshot', mock_get_chain)
     return mock_get_chain
 
 

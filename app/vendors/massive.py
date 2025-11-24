@@ -70,6 +70,8 @@ async def get_option_chain_snapshot(symbol: str, expiry: str):
             "theta": _f(g.get("theta")),
             "vega": _f(g.get("vega")),
             "iv": _f(g.get("iv") or item.get("implied_volatility")),
+            # Rho is not provided by Massive/Polygon, always None
+            "rho": None,
         })
 
     # Keep only exact expiry matches (defensive)

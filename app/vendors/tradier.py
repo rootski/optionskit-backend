@@ -1,7 +1,7 @@
 # app/vendors/tradier.py
 import httpx
 import logging
-from ..config import TRADIER_BASE_URL, TRADIER_API_TOKEN, TRADIER_RATE_LIMIT
+from ..config import TRADIER_BASE_URL, TRADIER_API_TOKEN, TRADIER_RATE_LIMIT, ENABLE_RHO_GREEK
 from .rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
@@ -20,6 +20,15 @@ def _i(x, default=0):
         return int(x) if x is not None else default
     except Exception:
         return default
+
+def _f_or_none(x):
+    """Helper to parse float or return None (for optional fields like rho)."""
+    try:
+        if x is None:
+            return None
+        return float(x)
+    except Exception:
+        return None
 
 async def get_option_chain_tradier(symbol: str, expiry: str):
     """
@@ -53,7 +62,17 @@ async def get_option_chain_tradier(symbol: str, expiry: str):
         r.raise_for_status()
         data = r.json()
 
-    raw = data.get("options", {}).get("option", []) or []
+    # Handle case where data or options might be None
+    if not data or not isinstance(data, dict):
+        logger.warning(f"Tradier API returned unexpected response: {data}")
+        return {"symbol": symbol.upper(), "expiry": expiry, "contracts": []}
+    
+    options = data.get("options")
+    if not options or not isinstance(options, dict):
+        logger.warning(f"Tradier API response missing or invalid 'options' key. Response: {data}")
+        return {"symbol": symbol.upper(), "expiry": expiry, "contracts": []}
+    
+    raw = options.get("option", []) or []
     if isinstance(raw, dict):
         raw = [raw]
 
@@ -76,6 +95,8 @@ async def get_option_chain_tradier(symbol: str, expiry: str):
             "theta": _f(g.get("theta")),
             "vega": _f(g.get("vega")),
             "iv": _f(g.get("mid_iv") or g.get("iv")),
+            # Rho is optional and vendor-provided only (Tradier provides it)
+            "rho": _f_or_none(g.get("rho")) if ENABLE_RHO_GREEK else None,
         })
 
     # filter to exact expiry for safety

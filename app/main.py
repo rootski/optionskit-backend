@@ -84,6 +84,13 @@ def version():
 
 @app.get("/v1/markets/chain")
 async def chain(symbol: str = Query(...), expiry: str = Query(...)):
+    """
+    Get options chain for a symbol and expiration date.
+    
+    Returns contracts with pricing data and Greeks (delta, gamma, theta, vega, iv, rho).
+    The rho field is optional and vendor-provided only (Tradier provides it, Massive/Polygon does not).
+    When rho is not available from the vendor, it will be null.
+    """
     # 1) Try Tradier first (default vendor)
     tradier_err = None
     try:

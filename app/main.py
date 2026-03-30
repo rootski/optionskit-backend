@@ -7,6 +7,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from .config import ALLOW_ORIGINS, MASSIVE_API_KEY, TRADIER_API_TOKEN
+from .redis_client import init_redis, close_redis
 from .vendors.tradier import get_option_chain_tradier, get_options_expirations_tradier
 from .vendors.massive import get_option_chain_snapshot  # fallback vendor
 from .version import get_version_info
@@ -23,6 +24,10 @@ scheduler = AsyncIOScheduler()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifespan: startup and shutdown."""
+    # Startup: Connect to Redis first (required dependency)
+    logger.info("Starting up: Connecting to Redis...")
+    await init_redis()
+
     # Startup: Initialize symbols and start scheduler
     logger.info("Starting up: Initializing OCC symbols...")
     try:
@@ -51,6 +56,7 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down: Stopping scheduler and background tasks...")
     stop_background_task()
     scheduler.shutdown(wait=False)
+    await close_redis()
 
 
 app = FastAPI(title="Options Backend", version="0.2.0", lifespan=lifespan)

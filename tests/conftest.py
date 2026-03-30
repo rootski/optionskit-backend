@@ -13,9 +13,16 @@ from unittest.mock import patch
 
 # Create a patcher that will be active during app import
 _patchers = []
+_fake_redis = None  # initialized in pytest_configure before app import
 
 def pytest_configure(config):
     """Configure pytest - set up mocks before any imports."""
+    import fakeredis.aioredis as fakeredis_aioredis
+
+    # Create a shared fake Redis instance for all tests
+    global _fake_redis
+    _fake_redis = fakeredis_aioredis.FakeRedis(decode_responses=True)
+
     # Patch the functions before app is imported
     patcher1 = patch('app.services.occ_symbols.refresh_symbols', new_callable=AsyncMock)
     patcher2 = patch('app.services.occ_symbols.get_symbols', return_value=set())
@@ -25,9 +32,13 @@ def pytest_configure(config):
     patcher6 = patch('app.main.scheduler.shutdown')
     patcher7 = patch('app.main.scheduler.add_job')
     patcher8 = patch('app.services.snapshot_quotes.start_background_task')  # Prevent auto-start in tests
-    
-    _patchers.extend([patcher1, patcher2, patcher3, patcher4, patcher5, patcher6, patcher7, patcher8])
-    
+    patcher9  = patch('app.redis_client._redis',      new=_fake_redis)
+    patcher10 = patch('app.redis_client.init_redis',  new_callable=AsyncMock)
+    patcher11 = patch('app.redis_client.close_redis', new_callable=AsyncMock)
+
+    _patchers.extend([patcher1, patcher2, patcher3, patcher4, patcher5, patcher6, patcher7, patcher8,
+                      patcher9, patcher10, patcher11])
+
     # Start all patchers
     for p in _patchers:
         p.start()
@@ -45,7 +56,13 @@ from app.main import scheduler
 
 @pytest.fixture(autouse=True)
 def reset_mocks():
-    """Reset mocks before each test."""
+    """Reset mocks and fake Redis state before each test."""
+    import asyncio
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(_fake_redis.flushall())
+    finally:
+        loop.close()
     occ_symbols.get_symbols.return_value = set()
     occ_symbols.get_symbol_count.return_value = 0
     occ_symbols.get_last_update.return_value = None

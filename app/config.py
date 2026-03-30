@@ -25,3 +25,7 @@ MAX_CONCURRENCY = int(os.getenv("MAX_CONCURRENCY", "8"))
 
 # Rho Greek feature flag (default: enabled)
 ENABLE_RHO_GREEK = os.getenv("ENABLE_RHO_GREEK", "true").lower() == "true"
+
+# Redis
+REDIS_URL    = os.getenv("REDIS_URL", "redis://localhost:6379")
+SNAPSHOT_TTL = REFRESH_INTERVAL_SEC * 3  # ~183s grace window if service dies

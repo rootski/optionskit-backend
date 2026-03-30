@@ -31,7 +31,7 @@ async def quotes_snapshot(symbols: str = Query(None, description="Comma-separate
         if symbols:
             symbol_list = [s.strip().upper() for s in symbols.split(",") if s.strip()]
         
-        return get_snapshot(symbols=symbol_list)
+        return await get_snapshot(symbols=symbol_list)
     except Exception as e:
         logger.error(f"Error retrieving quotes snapshot: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to retrieve quotes snapshot: {e}")
@@ -44,7 +44,7 @@ async def quotes_last_update():
     Lightweight endpoint to check snapshot freshness.
     """
     try:
-        return get_last_update()
+        return await get_last_update()
     except Exception as e:
         logger.error(f"Error retrieving quotes last update: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to retrieve quotes last update: {e}")
@@ -59,7 +59,7 @@ async def quotes_diagnostic():
     try:
         task_status = get_background_task_status()
         occ_symbol_count = get_symbol_count()
-        snapshot_info = get_last_update()
+        snapshot_info = await get_last_update()
         
         return {
             "background_task": task_status,

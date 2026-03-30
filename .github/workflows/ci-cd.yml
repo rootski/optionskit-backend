@@ -90,25 +90,30 @@ jobs:
       run: |
         # Verify image exists
         docker images | grep optionskit-backend || exit 1
-        
-        # Run container
+
+        # Start Redis (required dependency)
+        docker run -d --name test-redis -p 6379:6379 redis:7-alpine
+
+        # Run container linked to Redis
         docker run -d -p 8000:8000 --name test-container \
+          --link test-redis:redis \
           -e TRADIER_API_TOKEN=test \
           -e MASSIVE_API_KEY=test \
+          -e REDIS_URL=redis://redis:6379 \
           optionskit-backend:test
-        
+
         # Wait for app to start
         sleep 15
-        
+
         # Test health endpoint
         curl -f http://localhost:8000/healthz || exit 1
-        
+
         # Test version endpoint
         curl -f http://localhost:8000/version || exit 1
-        
+
         # Cleanup
-        docker stop test-container
-        docker rm test-container
+        docker stop test-container test-redis
+        docker rm test-container test-redis
 
   # Job 3: Deploy (only on master branch, after tests pass)
   deploy:

@@ -282,10 +282,13 @@ def get_background_task_status() -> Dict:
         status["cancelled"] = _background_task.cancelled()
 
         if _background_task.done():
-            try:
-                _background_task.exception()
-            except Exception as e:
-                status["exception"] = str(e)
+            if not _background_task.cancelled():
+                try:
+                    exc = _background_task.exception()
+                    if exc is not None:
+                        status["exception"] = str(exc)
+                except Exception as e:
+                    status["exception"] = str(e)
             status["message"] = "Background task completed" if not _background_task.cancelled() else "Background task cancelled"
         else:
             status["message"] = "Background task is running"
